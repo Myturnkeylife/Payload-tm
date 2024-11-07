@@ -108,7 +108,9 @@ const DocumentInfo: React.FC<
   const [currentEditor, setCurrentEditor] = useState<ClientUser | null | number | string>(null)
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(null)
 
-  const isInitializing = initialState === undefined || data === undefined
+  const [isInitializing, setIsInitializing] = useState(
+    initialState === undefined || data === undefined,
+  )
   const [unpublishedVersions, setUnpublishedVersions] =
     useState<PaginatedDocs<TypeWithVersion<any>>>(null)
 
@@ -213,6 +215,12 @@ const DocumentInfo: React.FC<
     },
     [serverURL, api, globalSlug],
   )
+
+  useEffect(() => {
+    if (initialState === undefined || data === undefined) {
+      setIsInitializing(true)
+    }
+  }, [initialState, data])
 
   useEffect(() => {
     if (!isLockingEnabled || (!id && !globalSlug)) {
@@ -558,6 +566,7 @@ const DocumentInfo: React.FC<
       }
 
       const getInitialState = async () => {
+        setIsInitializing(true)
         setIsError(false)
         setIsLoading(true)
 
