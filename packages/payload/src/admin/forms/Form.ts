@@ -44,14 +44,20 @@ export type FieldState = {
    */
   fieldSchema?: Field
   filterOptions?: FilterOptionsResult
-  initialValue: unknown
+  initialValue?: unknown
+  /**
+   * @deprecated
+   * This is a legacy property that is no longer used.
+   * Please use `fieldIsSidebar(field)` from `payload` instead
+   * Or check `field.admin.position === 'sidebar'` directly.
+   **/
   isSidebar?: boolean
   passesCondition?: boolean
   requiresRender?: boolean
   rows?: Row[]
-  valid: boolean
+  valid?: boolean
   validate?: Validate
-  value: unknown
+  value?: unknown
 }
 
 export type FieldStateWithoutComponents = Omit<FieldState, 'customComponents'>
@@ -68,6 +74,15 @@ export type BuildFormStateArgs = {
   data?: Data
   docPermissions: SanitizedDocumentPermissions | undefined
   docPreferences: DocumentPreferences
+  experimental?: {
+    /**
+     * If true, makes form state as small as possible by omitting unnecessary properties from the response
+     * Examples include the `isSidebar`, `passesCondition`, or `valid`, properties. See https://github.com/payloadcms/payload/pull/9388.
+     * In the next major version, this will be the default behavior.
+     * @default false
+     **/
+    optimized: boolean
+  }
   fallbackLocale?: false | TypedLocale
   formState?: FormState
   id?: number | string

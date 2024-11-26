@@ -1,4 +1,5 @@
 import type {
+  BuildFormStateArgs,
   Data,
   DocumentPreferences,
   Field,
@@ -37,6 +38,7 @@ export type AddFieldStatePromiseArgs = {
   anyParentLocalized?: boolean
   collectionSlug?: string
   data: Data
+  experimental?: BuildFormStateArgs['experimental']
   field: Field
   fieldIndex: number
   fieldSchemaMap: FieldSchemaMap
@@ -95,6 +97,7 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
     anyParentLocalized = false,
     collectionSlug,
     data,
+    experimental,
     field,
     fieldIndex,
     fieldSchemaMap,
@@ -154,14 +157,23 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
 
     const validate = field.validate
 
-    const fieldState: FormFieldWithoutComponents = {
-      errorPaths: [],
-      fieldSchema: includeSchema ? field : undefined,
-      initialValue: undefined,
-      isSidebar: fieldIsSidebar(field),
-      passesCondition,
-      valid: true,
-      value: undefined,
+    const fieldState: FormFieldWithoutComponents = {}
+
+    // @deprecated: the `experimental.optimized` property is used for backwards compatibility
+    // when optimized, properties are only added to fieldState if absolutely necessary
+    // In the next major version, this property will be removed and all associated code
+    if (experimental?.optimized) {
+      if (passesCondition === false) {
+        fieldState.passesCondition = false
+      }
+    } else {
+      fieldState.valid = true
+      fieldState.passesCondition = passesCondition
+      fieldState.isSidebar = fieldIsSidebar(field)
+    }
+
+    if (includeSchema) {
+      fieldState.fieldSchema = field
     }
 
     let validationResult: string | true = true
@@ -191,11 +203,21 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
           siblingData: data,
         } as any,
       )
+    } else {
+      if (!experimental?.optimized) {
+        // @deprecated: this code block will be removed in the next major version (see note above)
+        // `valid` is only attached to the response if necessary
+        fieldState.valid = true
+      }
     }
 
     const addErrorPathToParent = (errorPath: string) => {
       if (typeof addErrorPathToParentArg === 'function') {
         addErrorPathToParentArg(errorPath)
+      }
+
+      if (!fieldState.errorPaths) {
+        fieldState.errorPaths = []
       }
 
       if (!fieldState.errorPaths.includes(errorPath)) {
@@ -208,8 +230,6 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
       fieldState.errorMessage = validationResult
       fieldState.valid = false
       addErrorPathToParent(path)
-    } else {
-      fieldState.valid = true
     }
 
     switch (field.type) {
@@ -222,13 +242,23 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
             row.id = row?.id || new ObjectId().toHexString()
 
             if (!omitParents && (!filter || filter(args))) {
-              state[parentPath + '.id'] = {
-                fieldSchema: includeSchema
-                  ? field.fields.find((field) => 'name' in field && field.name === 'id')
-                  : undefined,
+              const idKey = parentPath + '.id'
+
+              state[idKey] = {
                 initialValue: row.id,
-                valid: true,
                 value: row.id,
+              }
+
+              if (!experimental?.optimized) {
+                // @deprecated: this code block will be removed in the next major version (see note above)
+                // `valid` is only attached to the response if necessary
+                state[idKey].valid = true
+              }
+
+              if (includeSchema) {
+                state[idKey].fieldSchema = field.fields.find(
+                  (field) => 'name' in field && field.name === 'id',
+                )
               }
             }
 
@@ -239,6 +269,7 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
                 anyParentLocalized: field.localized || anyParentLocalized,
                 collectionSlug,
                 data: row,
+                experimental,
                 fields: field.fields,
                 fieldSchemaMap,
                 filter,
@@ -264,38 +295,46 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
               }),
             )
 
-            const collapsedRowIDs = preferences?.fields?.[path]?.collapsed
+            if (!acc.rows) {
+              acc.rows = []
+            }
 
             acc.rows.push({
               id: row.id,
-              collapsed:
-                collapsedRowIDs === undefined
-                  ? field.admin.initCollapsed
-                  : collapsedRowIDs.includes(row.id),
             })
+
+            const collapsedRowIDs = preferences?.fields?.[path]?.collapsed
+
+            const collapsed =
+              collapsedRowIDs === undefined
+                ? field.admin.initCollapsed
+                : collapsedRowIDs.includes(row.id)
+
+            if (collapsed) {
+              acc.rows[acc.rows.length - 1].collapsed = collapsed
+            }
 
             return acc
           },
           {
             promises: [],
-            rows: [],
+            rows: undefined,
           },
         )
 
         // Wait for all promises and update fields with the results
         await Promise.all(promises)
 
-        fieldState.rows = rows
+        if (rows) {
+          fieldState.rows = rows
+        }
 
         // Unset requiresRender
         // so it will be removed from form state
         fieldState.requiresRender = false
 
         // Add values to field state
-        if (data[field.name] === null) {
-          fieldState.value = null
-          fieldState.initialValue = null
-        } else {
+        if (data[field.name] !== null) {
           fieldState.value = forceFullValue ? arrayValue : arrayValue.length
           fieldState.initialValue = forceFullValue ? arrayValue : arrayValue.length
 
@@ -331,37 +370,61 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
               row.id = row?.id || new ObjectId().toHexString()
 
               if (!omitParents && (!filter || filter(args))) {
-                state[parentPath + '.id'] = {
-                  fieldSchema: includeSchema
-                    ? block.fields.find(
-                        (blockField) => 'name' in blockField && blockField.name === 'id',
-                      )
-                    : undefined,
+                const idKey = parentPath + '.id'
+
+                state[idKey] = {
                   initialValue: row.id,
-                  valid: true,
                   value: row.id,
                 }
 
-                state[parentPath + '.blockType'] = {
-                  fieldSchema: includeSchema
-                    ? block.fields.find(
-                        (blockField) => 'name' in blockField && blockField.name === 'blockType',
-                      )
-                    : undefined,
+                if (!experimental?.optimized) {
+                  // @deprecated: this code block will be removed in the next major version (see note above)
+                  // `valid` is only attached to the response if necessary
+                  state[idKey].valid = true
+                }
+
+                if (includeSchema) {
+                  state[idKey].fieldSchema = block.fields.find(
+                    (blockField) => 'name' in blockField && blockField.name === 'id',
+                  )
+                }
+
+                const fieldKey = parentPath + '.blockType'
+
+                state[fieldKey] = {
                   initialValue: row.blockType,
-                  valid: true,
                   value: row.blockType,
                 }
 
-                state[parentPath + '.blockName'] = {
-                  fieldSchema: includeSchema
-                    ? block.fields.find(
-                        (blockField) => 'name' in blockField && blockField.name === 'blockName',
-                      )
-                    : undefined,
+                if (!experimental?.optimized) {
+                  // @deprecated: this code block will be removed in the next major version (see note above)
+                  // `valid` is only attached to the response if necessary
+                  state[fieldKey].valid = true
+                }
+
+                if (includeSchema) {
+                  state[fieldKey].fieldSchema = block.fields.find(
+                    (blockField) => 'name' in blockField && blockField.name === 'blockType',
+                  )
+                }
+
+                const blockNameKey = parentPath + '.blockName'
+
+                state[blockNameKey] = {
                   initialValue: row.blockName,
-                  valid: true,
                   value: row.blockName,
+                }
+
+                if (!experimental?.optimized) {
+                  // @deprecated: this code block will be removed in the next major version (see note above)
+                  // `valid` is only attached to the response if necessary
+                  state[blockNameKey].valid = true
+                }
+
+                if (includeSchema) {
+                  state[blockNameKey].fieldSchema = block.fields.find(
+                    (blockField) => 'name' in blockField && blockField.name === 'blockName',
+                  )
                 }
               }
 
@@ -372,6 +435,7 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
                   anyParentLocalized: field.localized || anyParentLocalized,
                   collectionSlug,
                   data: row,
+                  experimental,
                   fields: block.fields,
                   fieldSchemaMap,
                   filter,
@@ -401,16 +465,21 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
                 }),
               )
 
-              const collapsedRowIDs = preferences?.fields?.[path]?.collapsed
-
               acc.rowMetadata.push({
                 id: row.id,
                 blockType: row.blockType,
-                collapsed:
-                  collapsedRowIDs === undefined
-                    ? field.admin.initCollapsed
-                    : collapsedRowIDs.includes(row.id),
               })
+
+              const collapsedRowIDs = preferences?.fields?.[path]?.collapsed
+
+              const collapsed =
+                collapsedRowIDs === undefined
+                  ? field.admin.initCollapsed
+                  : collapsedRowIDs.includes(row.id)
+
+              if (collapsed) {
+                acc.rowMetadata[acc.rowMetadata.length - 1].collapsed = collapsed
+              }
             }
 
             return acc
@@ -462,6 +531,7 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
           anyParentLocalized: field.localized || anyParentLocalized,
           collectionSlug,
           data: data?.[field.name] || {},
+          experimental,
           fields: field.fields,
           fieldSchemaMap,
           filter,
@@ -592,11 +662,17 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
     if (!filter || filter(args)) {
       state[path] = {
         disableFormData: true,
-        errorPaths: [],
-        initialValue: undefined,
-        passesCondition,
-        valid: true,
-        value: undefined,
+      }
+
+      if (experimental?.optimized) {
+        if (passesCondition === false) {
+          state[path].passesCondition = false
+        }
+      } else {
+        // @deprecated: this code block will be removed in the next major version (see note above)
+        // `passesCondition` and `valid` are only attached to the response if necessary
+        state[path].passesCondition = passesCondition
+        state[path].valid = true
       }
     }
 
@@ -607,6 +683,7 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
       anyParentLocalized: field.localized || anyParentLocalized,
       collectionSlug,
       data,
+      experimental,
       fields: field.fields,
       fieldSchemaMap,
       filter,
@@ -649,6 +726,7 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
       })
 
       let childPermissions: SanitizedFieldsPermissions = undefined
+
       if (tabHasName(tab)) {
         if (parentPermissions === true) {
           childPermissions = true
@@ -670,6 +748,7 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
         anyParentLocalized: tab.localized || anyParentLocalized,
         collectionSlug,
         data: isNamedTab ? data?.[tab.name] || {} : data,
+        experimental,
         fields: tab.fields,
         fieldSchemaMap,
         filter,
@@ -699,13 +778,21 @@ export const addFieldStatePromise = async (args: AddFieldStatePromiseArgs): Prom
     if (!filter || filter(args)) {
       state[path] = {
         disableFormData: true,
-        errorPaths: [],
-        fieldSchema: includeSchema ? field : undefined,
-        initialValue: undefined,
-        isSidebar: fieldIsSidebar(field),
-        passesCondition,
-        valid: true,
-        value: undefined,
+      }
+
+      if (experimental?.optimized) {
+        if (passesCondition === false) {
+          state[path].passesCondition = false
+        }
+      } else {
+        // @deprecated: this code block will be removed in the next major version (see note above)
+        // `passesCondition` and `valid` are only attached to the response if necessary
+        state[path].passesCondition = passesCondition
+        state[path].valid = true
+      }
+
+      if (includeSchema) {
+        state[path].fieldSchema = field
       }
     }
   }
