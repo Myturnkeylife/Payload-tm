@@ -33,6 +33,7 @@ export type FeatureProviderClient<
   clientFeatureProps: BaseClientFeatureProps<UnSanitizedClientFeatureProps>
   feature:
     | ((props: {
+        featureClientImportMap: Record<string, any>
         featureClientSchemaMap: FeatureClientSchemaMap
         /** unSanitizedEditorConfig.features, but mapped */
         featureProviderMap: ClientFeatureProviderMap
@@ -49,10 +50,12 @@ export type FeatureProviderClient<
 export type PluginComponent<ClientFeatureProps = any> = React.FC<{
   clientProps: ClientFeatureProps
 }>
-export type PluginComponentWithAnchor<ClientFeatureProps = any> = React.FC<{
-  anchorElem: HTMLElement
-  clientProps: ClientFeatureProps
-}>
+export type PluginComponentWithAnchor<ClientFeatureProps = any, ExtraProps = object> = React.FC<
+  {
+    anchorElem: HTMLElement
+    clientProps: ClientFeatureProps
+  } & ExtraProps
+>
 
 /**
  * Plugins are react components which get added to the editor. You can use them to interact with lexical, e.g. to create a command which creates a node, or opens a modal, or some other more "outside" functionality
